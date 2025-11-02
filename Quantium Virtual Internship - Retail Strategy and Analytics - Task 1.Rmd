@@ -1,0 +1,649 @@
+---
+title: "Quantium Virtual Internship - Retail Strategy and Analytics - Task 1ed"
+author: "Fareedah F Araoye"
+date: "2025-06-23"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+#Load required libraries
+library(data.table)
+library(ggplot2)
+library(ggmosaic)
+library(readr)
+library(readxl)
+
+filePath <- "C:/Users/feyis/Downloads/QUANTIUM DATA ANALYTICS/"
+
+transactionData <- read_excel(paste0(filePath, "QVI_transaction_data.xlsx"))
+customerData <- fread(paste0(filePath, "QVI_purchase_behaviour.csv"))
+
+```
+
+```{r Examining transaction Data}
+###Descriptive Analysis
+
+library(dplyr)
+
+str(transactionData)
+head(transactionData)
+transactionData$DATE <- as.Date(transactionData$DATE, origin = "1899-12-30")
+head(transactionData)
+summary(transactionData)
+summary(is.na(transactionData))
+glimpse(transactionData)
+
+```
+
+```{r Convert date to date format}
+
+library(lubridate)
+transactionData$year <- year(transactionData$DATE)
+transactionData$month <- month(transactionData$DATE, label = TRUE)
+transactionData$weekday <- wday(transactionData$DATE, label = TRUE)
+head(transactionData)
+
+```
+
+
+
+```{r Summary of PROD_NAME}
+#### Examine PROD_NAME
+# Basic summary: number of unique products
+length(unique(transactionData$PROD_NAME))
+
+#The top 10 products
+transactionData %>%
+  count(PROD_NAME, sort = TRUE) %>%
+  top_n(10)
+
+
+```
+
+```{r Further examine PROD_NAME}
+#### Examine the words in PROD_NAME to see if there are any incorrect entries
+#### such as products that are not chips
+
+
+# Split all unique product names into individual words
+productWords <- data.table(unlist(strsplit(unique(transactionData$PROD_NAME), " ")))
+
+# Rename the column for clarity
+setnames(productWords, "words")
+
+
+```
+
+```{r}
+
+library(data.table)
+
+# Step 1: Extract words from unique product names
+productWords <- data.table(unlist(strsplit(unique(transactionData$PROD_NAME), " ")))
+setnames(productWords, "words")
+
+# Step 2: Remove words containing digits or special characters (e.g., &, %, etc.)
+cleanWords <- productWords[!grepl("[0-9&%$@*!]", words)]
+
+# Step 3: Count frequency of each word
+wordFreq <- cleanWords[, .N, by = words][order(-N)]
+
+# Step 4: View top results
+head(wordFreq, 20)
+
+
+
+```
+
+
+
+```{r Chips info only}
+
+#There are salsa products in the dataset but we are only interested in the chips
+#category, so let's remove these.
+
+#### Remove salsa products
+
+library(dplyr)
+
+transactionData <- transactionData %>%
+  filter(!grepl("salsa", tolower(PROD_NAME)))
+
+
+sum(grepl("salsa", tolower(transactionData$PROD_NAME)))
+
+head(unique(transactionData$PROD_NAME), 20)
+
+```
+
+```{r Summary to determine outlier}
+
+summary(transactionData)
+summary(is.na(transactionData))
+
+```
+
+
+
+
+```{r}
+library(dplyr)
+
+# Identify outlier transactions
+outlier_txn <- transactionData %>%
+  filter(PROD_QTY == 200)
+
+# Get unique customer(s)
+unique_customers <- unique(outlier_txn$LYLTY_CARD_NBR)
+unique_customers
+
+# Remove those customers' transactions
+transactionData <- transactionData %>%
+  filter(!LYLTY_CARD_NBR %in% unique_customers)
+
+# Check that data looks fine
+summary(transactionData)
+length(unique(transactionData$LYLTY_CARD_NBR))
+
+# Visualize quantities after cleaning
+boxplot(transactionData$PROD_QTY,
+        main = "Product Quantity per Transaction",
+        ylab = "Number of Packets")
+
+
+
+
+
+```
+
+```{r transaction by date}
+
+library(dplyr)
+
+transactions_by_date <- transactionData %>%
+  group_by(DATE) %>%
+  summarise(transaction_count = n()) %>%
+  arrange(DATE)
+
+View(transactions_by_date)
+
+transactions_by_date %>%
+  filter(transaction_count == max(transaction_count))
+
+transactions_by_date %>%
+  filter(transaction_count == min(transaction_count))
+
+
+```
+
+
+```{r transaction by day}
+
+
+library(dplyr)
+all_dates <- data.frame(
+  DATE = seq(as.Date("2018-07-01"), as.Date("2019-06-30"), by = "day")
+)
+
+
+# Step 2: Count transactions per day from your original dataset
+transactions_by_day <- transactionData %>%
+  group_by(DATE) %>%
+  summarise(N = n())
+
+# Step 3: Join to include all dates (even the missing one)
+transactions_by_day <- all_dates %>%
+  left_join(transactions_by_day, by = "DATE")
+
+# Step 4: Replace NA with 0 for missing transaction count
+transactions_by_day$N[is.na(transactions_by_day$N)] <- 0
+
+transactions_by_day
+
+transactions_by_day %>% filter(N == 0)
+
+
+
+```
+
+```{r number of transaction by date}
+
+#### Setting plot themes to format graphs
+theme_set(theme_bw())
+theme_update(plot.title = element_text(hjust = 0.5))
+
+#### Plot transactions over time
+ggplot(transactions_by_day, aes(x = DATE, y = N)) +
+  geom_line() +
+  labs(x = "Day", y = "Number of transactions", title = "Transactions over time") +
+  scale_x_date(breaks = "1 month") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+
+```
+
+```{r determine reasons for anomly on set date}
+
+# Filter just the relevant dates around the anomaly
+december_view <- transactions_by_day %>%
+  filter(DATE >= as.Date("2018-12-01") & DATE <= as.Date("2019-01-15"))
+
+# Plot that time window
+ggplot(december_view, aes(x = DATE, y = N)) +
+  geom_line() +
+  labs(x = "Day", y = "Number of transactions", title = "Transactions in December and Early January") +
+  scale_x_date(breaks = "1 day") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+
+
+
+
+
+
+
+
+
+
+```
+
+```{r Create pack size}
+#### Pack size
+
+library(data.table)
+
+# Convert to data.table if it's not already
+setDT(transactionData)
+
+#### We can work this out by taking the digits that are in PROD_NAME
+transactionData[, PACK_SIZE := parse_number(PROD_NAME)]
+#### Always check your output
+#### Let's check if the pack sizes look sensible
+transactionData[, .N, PACK_SIZE][order(PACK_SIZE)]
+
+
+
+```
+
+```{r histogram for pack size}
+
+
+library(ggplot2)
+
+# Bar chart of pack size frequencies
+ggplot(transactionData, aes(x = factor(PACK_SIZE))) +
+  geom_bar(fill = "skyblue", color = "black") +
+  labs(
+    title = "Number of Transactions by Pack Size",
+    x = "Pack Size (g)",
+    y = "Number of Transactions"
+  ) +
+  theme_minimal()
+
+
+ggplot(transactionData, aes(x = PACK_SIZE)) +
+  geom_histogram(binwidth = 30, fill = "steelblue", color = "black") +
+  labs(
+    title = "Histogram of Pack Sizes",
+    x = "Pack Size (g)",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+
+
+
+
+
+
+```
+
+```{r create brandname}
+library(dplyr)
+library(stringr)
+
+transactionData <- transactionData %>%
+  mutate(BRAND = word(PROD_NAME, 1))
+transactionData %>%
+  count(BRAND, sort = TRUE)
+head(transactionData)
+
+# Check brands that only appear once (potential typos)
+transactionData[, .N, by = BRAND][N == 1]
+
+```
+
+```{r Clean brand names}
+#### Clean brand names
+transactionData[BRAND == "Red", BRAND := "RRD"]
+transactionData[BRAND == "Snbts", BRAND := "Sunbites"]
+transactionData[BRAND == "Smith", BRAND := "Smiths"]
+transactionData[BRAND == "Dorito", BRAND := "Doritos"]
+transactionData[BRAND == "WW", BRAND := "Woolworths"]
+transactionData[BRAND == "Infzns", BRAND := "Infuzions"]
+transactionData[BRAND == "Infzns", BRAND := "Infuzions"]
+transactionData[BRAND == "Natural", BRAND := "NCC"]
+
+
+transactionData[, .N, by = BRAND][order(-N)]
+
+```
+
+Examining customer data
+Now that we are happy with the transaction dataset, let's have a look at the
+customer dataset.
+
+```{r EDA Cuustomer Datset}
+
+##Descriptive Analytics
+
+str(customerData)
+head(customerData)
+head(customerData)
+summary(customerData)
+summary(is.na(customerData))
+library(dplyr)
+glimpse(customerData)
+
+table(customerData$LIFESTAGE)
+
+barplot(table(customerData$LIFESTAGE))
+
+table(customerData$PREMIUM_CUSTOMER)
+
+stagesream <- table(customerData$LIFESTAGE, customerData$PREMIUM_CUSTOMER)
+
+##min(stagesream)
+##max(stagesream)
+
+
+
+```
+
+```{r Merge customer dataset with transaction dataset}
+
+#### Merge transaction data to customer data
+data <- merge(transactionData, customerData, all.x = TRUE)
+head(data)
+
+```
+
+```{r Check for missing customer details}
+
+# Display all transactions where customer info is missing
+colSums(is.na(data))
+
+
+```
+
+```{r Code to save dataset as a csv}
+fwrite(data, paste0(filePath,"QVI_data.csv"))
+```
+
+
+```{r Data Analysis}
+
+# Total sales by both life stage + premium type
+sales_by_segment <- aggregate(TOT_SALES ~ LIFESTAGE + PREMIUM_CUSTOMER, data = data, sum)
+
+sales_by_segment
+
+# Find the segment with max sales
+max_segment <- sales_by_segment[which.max(sales_by_segment$TOT_SALES), ]
+max_segment
+
+library(ggplot2)
+
+ggplot(data, aes(x = LIFESTAGE, y = TOT_SALES, fill = PREMIUM_CUSTOMER)) +
+  geom_bar(stat = "summary", fun = "sum", position = "dodge") +
+  labs(
+    title = "Total Chip Sales by Customer Segment",
+    x = "Life Stage",
+    y = "Total Sales"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 10)
+  )
+
+
+
+```
+
+```{r how many customers are in each segment}
+
+table(data$LIFESTAGE, data$PREMIUM_CUSTOMER)
+
+```
+
+```{r how many chips are bought per customer by segment}
+
+customer_summary <- data %>%
+  group_by(LIFESTAGE, PREMIUM_CUSTOMER) %>%
+  summarise(num_customers = n(), .groups = "drop")
+customer_summary
+
+ggplot(customer_summary, aes(x = LIFESTAGE, y = num_customers, fill = PREMIUM_CUSTOMER)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Number of Customers by Life Stage and Customer Segment",
+    x = "Life Stage",
+    y = "Number of Customers"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 12)
+  ) 
+
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(scales)
+
+colnames(data)
+
+
+# Calculate average price per unit by LIFESTAGE and PREMIUM_CUSTOMER
+avg_price_summary <- data %>%
+  group_by(LIFESTAGE, PREMIUM_CUSTOMER) %>%
+  summarise(
+    avg_price_per_unit = sum(TOT_SALES) / sum(PROD_QTY),
+    .groups = "drop"
+  )
+
+# Plot average price per unit
+ggplot(avg_price_summary, aes(x = LIFESTAGE, y = avg_price_per_unit, fill = PREMIUM_CUSTOMER)) +
+  geom_bar(stat = "identity") +  # stacked by default
+  labs(
+    title = "Average Price per Unit by Life Stage and Customer Segment",
+    x = "Life Stage",
+    y = "Average Price per Unit ($)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 12)
+  ) +
+  scale_y_continuous(labels = scales::dollar)
+
+
+
+
+```
+
+```{r}
+unique(data$LIFESTAGE)
+unique(data$PREMIUM_CUSTOMER)
+
+
+# Filter the two groups
+group1 <- data %>%
+  filter(PREMIUM_CUSTOMER == "Mainstream", 
+         LIFESTAGE %in% c("YOUNG SINGLES/COUPLES", "MIDAGES SINGLES/COUPLES"))
+
+group2 <- data %>%
+  filter(PREMIUM_CUSTOMER %in% c("Budget", "Premium"),
+         LIFESTAGE %in% c("YOUNG SINGLES/COUPLES", "MIDAGES SINGLES/COUPLES"))
+
+# Calculate average price per unit for each row if not already present
+# Assuming TOT_SALES and PROD_QTY exist
+group1$price_per_unit <- group1$TOT_SALES / group1$PROD_QTY
+group2$price_per_unit <- group2$TOT_SALES / group2$PROD_QTY
+
+# Perform independent t-test
+t_test_result <- t.test(group1$price_per_unit, group2$price_per_unit)
+t_test_result
+
+```
+
+
+
+```{r}
+
+library(dplyr)
+library(ggplot2)
+library(scales)
+
+# Filter for Mainstream - young singles/couples
+segment_data <- data %>%
+  filter(PREMIUM_CUSTOMER == "Mainstream", 
+         LIFESTAGE == "YOUNG SINGLES/COUPLES")
+
+# Summarise total units sold by brand
+brand_summary <- segment_data %>%
+  group_by(BRAND) %>%
+  summarise(
+    total_units = sum(PROD_QTY),       # total units sold per brand
+    total_sales = sum(TOT_SALES),      # total sales per brand
+    .groups = "drop"
+  ) %>%
+  arrange(desc(total_units))           # rank by popularity
+
+# View top 10 brands
+head(brand_summary, 10)
+
+# Plot top brands
+ggplot(head(brand_summary, 10), aes(x = reorder(BRAND, total_units), y = total_units, fill = BRAND)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(
+    title = "Top 10 Brands for Mainstream - Young Singles/Couples",
+    x = "Brand",
+    y = "Total Units Sold"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+
+
+
+
+```
+
+
+
+```{r Deep dive}
+
+library(dplyr)
+library(tidyr)
+
+# Filter segment
+segment_data <- data %>%
+  filter(PREMIUM_CUSTOMER == "Mainstream",
+         LIFESTAGE == "YOUNG SINGLES/COUPLES") %>%
+  select(LYLTY_CARD_NBR, BRAND)
+
+# Count number of brands per customer
+brand_counts <- segment_data %>%
+  group_by(LYLTY_CARD_NBR) %>%
+  summarise(n_brands = n_distinct(BRAND), .groups = "drop")
+
+# Keep only customers with 2 or more brands
+valid_customers <- brand_counts %>%
+  filter(n_brands >= 2) %>%
+  pull(LYLTY_CARD_NBR)
+
+# Filter original data
+segment_data_valid <- segment_data %>%
+  filter(LYLTY_CARD_NBR %in% valid_customers)
+
+# Create all brand pairs per customer
+brand_pairs <- segment_data_valid %>%
+  group_by(LYLTY_CARD_NBR) %>%
+  summarise(pairs = combn(BRAND, 2, FUN = function(x) paste(sort(x), collapse = " & ")), .groups = "drop") %>%
+  unnest(cols = c(pairs))
+
+# Count frequency of each pair
+pair_counts <- brand_pairs %>%
+  group_by(pairs) %>%
+  summarise(freq = n(), .groups = "drop") %>%
+  arrange(desc(freq))
+
+# Top 10 brand pairs
+head(pair_counts, 10)
+
+
+```
+
+Insight:
+The affinity analysis for Mainstream - Young Singles/Couples shows that this segment most frequently purchases Kettle, Doritos, and Pringles.
+Kettle chips, in particular, appear in most co-purchase combinations, indicating strong brand preference and cross-brand appeal. This suggests Kettle could be a key driver brand for targeted promotions among young mainstream consumers.
+
+
+```{r}
+
+library(dplyr)
+library(ggplot2)
+
+# Create target and non-target groups
+data_packsize <- data %>%
+  mutate(
+    SEGMENT = ifelse(
+      LIFESTAGE == "YOUNG SINGLES/COUPLES" & PREMIUM_CUSTOMER == "Mainstream",
+      "Target Segment: Mainstream Young Singles/Couples",
+      "Other Customers"
+    )
+  )
+
+# Summarise average pack size per group
+packsize_summary <- data_packsize %>%
+  group_by(SEGMENT) %>%
+  summarise(avg_pack_size = mean(PACK_SIZE, na.rm = TRUE))
+
+packsize_summary
+
+
+ggplot(data_packsize, aes(x = SEGMENT, y = PACK_SIZE, fill = SEGMENT)) +
+  geom_boxplot() +
+  labs(
+    title = "Preferred Pack Size: Target Segment vs Others",
+    x = "",
+    y = "Pack Size (grams)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 15, hjust = 1))
+
+
+
+```
+Insights:
+
+The average pack size purchased by Mainstream - Young Singles/Couples (178.3 g) is slightly larger than that of other customers (175.3 g).
+This indicates that the target segment tends to prefer larger pack sizes, though the difference is relatively small.
+
+
+
+
+
+
+
