@@ -35,3 +35,5 @@ Output charts	trend comparisons (sales & customers)
 Key Result
 The analysis statistically tests whether the trial store showed significant uplift beyond expected behaviour.
 
+
+
